@@ -1,108 +1,94 @@
-import { useState, useCallback, useEffect } from 'react';
-import { useWebSocket } from './hooks/useWebSocket';
-import { useApi } from './hooks/useApi';
-import { WalletSetup } from './components/WalletSetup';
+import { useState, useCallback } from 'react';
+import { WalletProvider } from './components/WalletProvider';
+import { WalletDropdown } from './components/WalletDropdown';
 import { BalanceDisplay } from './components/BalanceDisplay';
 import { TWAPConfig } from './components/TWAPConfig';
 import { TradeHistory } from './components/TradeHistory';
 import { StatusDisplay } from './components/StatusDisplay';
 import type { TokenBalances, TWAPStatus, TradeExecution } from './types';
 
-function App() {
-  const [walletAddress, setWalletAddress] = useState<string | null>(null);
-  const [balances, setBalances] = useState<TokenBalances | null>(null);
-  const [twapStatus, setTwapStatus] = useState<TWAPStatus | null>(null);
+function AppContent() {
+  const [, setBalances] = useState<TokenBalances | null>(null);
+  const [, setTwapStatus] = useState<TWAPStatus | null>(null);
   const [trades, setTrades] = useState<TradeExecution[]>([]);
-  const { getWalletStatus } = useApi();
 
-  // WebSocket handlers
   const handleTradeExecuted = useCallback((trade: TradeExecution) => {
-    setTrades((prev) => [...prev, trade]);
+    setTrades((prev) => {
+      // Update existing trade or add new one
+      const existing = prev.findIndex((t) => t.id === trade.id);
+      if (existing >= 0) {
+        const updated = [...prev];
+        updated[existing] = trade;
+        return updated;
+      }
+      return [...prev, trade];
+    });
+  }, []);
+
+  const handleStatusChange = useCallback((status: TWAPStatus) => {
+    setTwapStatus(status);
   }, []);
 
   const handleBalanceUpdate = useCallback((newBalances: TokenBalances) => {
     setBalances(newBalances);
   }, []);
 
-  const handleTWAPStatusUpdate = useCallback((status: TWAPStatus) => {
-    setTwapStatus(status);
-  }, []);
-
-  const handleError = useCallback((message: string) => {
-    console.error('WebSocket error:', message);
-  }, []);
-
-  const { connected, reconnecting } = useWebSocket({
-    onTradeExecuted: handleTradeExecuted,
-    onBalanceUpdate: handleBalanceUpdate,
-    onTWAPStatus: handleTWAPStatusUpdate,
-    onError: handleError,
-  });
-
-  // Check initial wallet status
-  useEffect(() => {
-    const checkWallet = async () => {
-      const result = await getWalletStatus();
-      if (result.success && result.data?.address) {
-        setWalletAddress(result.data.address);
-      }
-    };
-    checkWallet();
-  }, []);
-
   return (
-    <div className="min-h-screen bg-gray-900">
-      <header className="bg-gray-800 border-b border-gray-700">
+    <div className="min-h-screen bg-liquid noise">
+      <header className="glass-subtle border-b border-white/5 relative" style={{ zIndex: 9999 }}>
         <div className="max-w-6xl mx-auto px-4 py-4 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <h1 className="text-2xl font-bold text-movement-primary">
-              TWAP Buyback Bot
-            </h1>
-            <span className="px-2 py-1 bg-gray-700 rounded text-xs text-gray-300">
-              Movement
-            </span>
+          <div className="flex items-center gap-4">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-movement-yellow flex items-center justify-center">
+                <span className="text-black font-bold text-lg">M</span>
+              </div>
+              <div>
+                <h1 className="text-xl font-bold text-gradient">
+                  TWAP Buyback Bot
+                </h1>
+                <p className="text-xs text-white/50">Movement Network</p>
+              </div>
+            </div>
           </div>
-          <StatusDisplay wsConnected={connected} wsReconnecting={reconnecting} />
+          <div className="flex items-center gap-4">
+            <StatusDisplay />
+            <WalletDropdown />
+          </div>
         </div>
       </header>
 
       <main className="max-w-6xl mx-auto px-4 py-8">
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           <div className="space-y-6">
-            <WalletSetup
-              address={walletAddress}
-              onWalletConfigured={setWalletAddress}
+            <TWAPConfig
+              onStatusChange={handleStatusChange}
+              onTradeExecuted={handleTradeExecuted}
             />
-            {walletAddress && (
-              <BalanceDisplay
-                balances={balances}
-                onRefresh={setBalances}
-              />
-            )}
           </div>
 
           <div className="space-y-6">
-            <TWAPConfig
-              status={twapStatus}
-              onStatusChange={setTwapStatus}
-              walletConfigured={!!walletAddress}
-            />
+            <BalanceDisplay onBalanceUpdate={handleBalanceUpdate} />
+            <TradeHistory trades={trades} onRefresh={setTrades} />
           </div>
-        </div>
-
-        <div className="mt-6">
-          <TradeHistory trades={trades} onRefresh={setTrades} />
         </div>
       </main>
 
-      <footer className="bg-gray-800 border-t border-gray-700 mt-12">
+      <footer className="glass-subtle border-t border-white/5 mt-12">
         <div className="max-w-6xl mx-auto px-4 py-4">
-          <p className="text-center text-gray-400 text-sm">
-            TWAP Buyback Bot for Movement Blockchain
+          <p className="text-center text-white/40 text-sm">
+            TWAP Buyback Bot for Movement Network
           </p>
         </div>
       </footer>
     </div>
+  );
+}
+
+function App() {
+  return (
+    <WalletProvider>
+      <AppContent />
+    </WalletProvider>
   );
 }
 

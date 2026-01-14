@@ -7,11 +7,21 @@ export default {
   theme: {
     extend: {
       colors: {
+        background: '#050508',
+        foreground: '#ffffff',
         movement: {
-          primary: '#FF5722',
-          secondary: '#1E1E1E',
-          accent: '#FFC107',
+          yellow: '#FFDA00',
+          'yellow-light': '#FFF4B3',
+          dark: '#050508',
         },
+        glass: {
+          bg: 'rgba(255, 255, 255, 0.03)',
+          border: 'rgba(255, 255, 255, 0.08)',
+          highlight: 'rgba(255, 255, 255, 0.12)',
+        },
+      },
+      backdropBlur: {
+        glass: '20px',
       },
     },
   },

@@ -1,48 +1,68 @@
-import { useState } from 'react';
-import { useApi } from '../hooks/useApi';
+import { useWallet, WalletReadyState } from "@aptos-labs/wallet-adapter-react";
 
-interface WalletSetupProps {
-  address: string | null;
-  onWalletConfigured: (address: string) => void;
-}
+export function WalletSetup() {
+  const {
+    connected,
+    account,
+    wallets,
+    connect,
+    disconnect,
+  } = useWallet();
 
-export function WalletSetup({ address, onWalletConfigured }: WalletSetupProps) {
-  const [importKey, setImportKey] = useState('');
-  const [showPrivateKey, setShowPrivateKey] = useState(false);
-  const [generatedPrivateKey, setGeneratedPrivateKey] = useState<string | null>(null);
-  const { generateWallet, importWallet, loading, error } = useApi();
-
-  const handleGenerate = async () => {
-    const result = await generateWallet();
-    if (result.success && result.data) {
-      setGeneratedPrivateKey(result.data.privateKey);
-      onWalletConfigured(result.data.address);
-    }
-  };
-
-  const handleImport = async () => {
-    if (!importKey.trim()) return;
-    const result = await importWallet(importKey.trim());
-    if (result.success && result.data) {
-      setImportKey('');
-      onWalletConfigured(result.data.address);
-    }
-  };
+  const address = account?.address?.toString() || '';
 
   const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text);
   };
 
+  const handleConnect = async (walletName: string) => {
+    try {
+      await connect(walletName);
+    } catch (error) {
+      console.error("Failed to connect:", error);
+    }
+  };
+
+  const handleDisconnect = async () => {
+    try {
+      await disconnect();
+    } catch (error) {
+      console.error("Failed to disconnect:", error);
+    }
+  };
+
+  const installedWallets = wallets.filter(
+    (wallet) => wallet.readyState === WalletReadyState.Installed
+  );
+
+  const notInstalledWallets = wallets.filter(
+    (wallet) => wallet.readyState === WalletReadyState.NotDetected
+  );
+
   return (
     <div className="card">
-      <h2 className="text-xl font-bold mb-4">Wallet Setup</h2>
+      <h2 className="text-lg font-semibold text-gradient mb-4">Wallet</h2>
 
-      {address ? (
+      {connected && address ? (
         <div className="space-y-4">
+          <div className="flex items-center gap-3 mb-4">
+            <div className="w-10 h-10 rounded-full bg-movement-yellow/20 flex items-center justify-center">
+              <span className="text-movement-yellow font-bold">
+                {address.slice(2, 4).toUpperCase()}
+              </span>
+            </div>
+            <div className="flex-1">
+              <p className="text-sm text-white/50">Connected</p>
+              <p className="font-mono text-sm text-white truncate">
+                {address.slice(0, 8)}...{address.slice(-6)}
+              </p>
+            </div>
+          </div>
+
           <div>
             <label className="label">Deposit Address</label>
             <div className="flex items-center gap-2">
-              <code className="bg-gray-700 px-3 py-2 rounded flex-1 text-sm break-all">
+              <code className="glass-subtle px-3 py-2.5 rounded-lg flex-1 text-sm break-all text-white/80 font-mono">
                 {address}
               </code>
               <button
@@ -54,78 +74,77 @@ export function WalletSetup({ address, onWalletConfigured }: WalletSetupProps) {
             </div>
           </div>
 
-          {generatedPrivateKey && (
-            <div className="bg-yellow-900/30 border border-yellow-600 rounded-lg p-4">
-              <p className="text-yellow-400 text-sm font-medium mb-2">
-                Save your private key securely. You won't see it again!
-              </p>
-              <div className="flex items-center gap-2">
-                <code className="bg-gray-900 px-3 py-2 rounded flex-1 text-sm break-all">
-                  {showPrivateKey ? generatedPrivateKey : '••••••••••••••••'}
-                </code>
-                <button
-                  onClick={() => setShowPrivateKey(!showPrivateKey)}
-                  className="btn-secondary text-sm"
-                >
-                  {showPrivateKey ? 'Hide' : 'Show'}
-                </button>
-                <button
-                  onClick={() => copyToClipboard(generatedPrivateKey)}
-                  className="btn-secondary text-sm"
-                >
-                  Copy
-                </button>
-              </div>
-            </div>
-          )}
+          <button
+            onClick={handleDisconnect}
+            className="btn-danger w-full"
+          >
+            Disconnect Wallet
+          </button>
         </div>
       ) : (
-        <div className="space-y-6">
-          <div>
-            <h3 className="text-lg font-semibold mb-3">Generate New Wallet</h3>
-            <button
-              onClick={handleGenerate}
-              disabled={loading}
-              className="btn-primary w-full"
-            >
-              {loading ? 'Generating...' : 'Generate New Wallet'}
-            </button>
-          </div>
+        <div className="space-y-4">
+          <p className="text-white/60 text-sm mb-4">
+            Connect your wallet to start using the TWAP bot
+          </p>
 
-          <div className="relative">
-            <div className="absolute inset-0 flex items-center">
-              <div className="w-full border-t border-gray-600"></div>
+          {installedWallets.length > 0 ? (
+            <div className="space-y-2">
+              <p className="text-xs text-white/40 uppercase tracking-wide">Installed Wallets</p>
+              {installedWallets.map((wallet) => (
+                <button
+                  key={wallet.name}
+                  onClick={() => handleConnect(wallet.name)}
+                  className="w-full glass-subtle hover:bg-white/5 rounded-xl p-4 flex items-center gap-3 transition-all"
+                >
+                  <img
+                    src={wallet.icon}
+                    alt={wallet.name}
+                    className="w-8 h-8 rounded-lg"
+                  />
+                  <span className="font-medium text-white">{wallet.name}</span>
+                  <span className="ml-auto text-xs text-green-400">Installed</span>
+                </button>
+              ))}
             </div>
-            <div className="relative flex justify-center text-sm">
-              <span className="px-2 bg-gray-800 text-gray-400">or</span>
-            </div>
-          </div>
-
-          <div>
-            <h3 className="text-lg font-semibold mb-3">Import Existing Wallet</h3>
-            <div className="space-y-3">
-              <input
-                type="password"
-                value={importKey}
-                onChange={(e) => setImportKey(e.target.value)}
-                placeholder="Enter private key (hex)"
-                className="input w-full"
-              />
-              <button
-                onClick={handleImport}
-                disabled={loading || !importKey.trim()}
-                className="btn-primary w-full"
+          ) : (
+            <div className="glass-subtle rounded-xl p-6 text-center">
+              <p className="text-white/70 mb-4">No wallets detected</p>
+              <p className="text-sm text-white/50 mb-4">
+                Install a compatible wallet to continue
+              </p>
+              <a
+                href="https://nightly.app/"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="btn-primary inline-block"
               >
-                {loading ? 'Importing...' : 'Import Wallet'}
-              </button>
+                Get Nightly Wallet
+              </a>
             </div>
-          </div>
-        </div>
-      )}
+          )}
 
-      {error && (
-        <div className="mt-4 bg-red-900/30 border border-red-600 rounded-lg p-3">
-          <p className="text-red-400 text-sm">{error}</p>
+          {notInstalledWallets.length > 0 && (
+            <div className="space-y-2 mt-4">
+              <p className="text-xs text-white/40 uppercase tracking-wide">Other Wallets</p>
+              {notInstalledWallets.slice(0, 3).map((wallet) => (
+                <a
+                  key={wallet.name}
+                  href={wallet.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="w-full glass-subtle hover:bg-white/5 rounded-xl p-4 flex items-center gap-3 transition-all block"
+                >
+                  <img
+                    src={wallet.icon}
+                    alt={wallet.name}
+                    className="w-8 h-8 rounded-lg opacity-50"
+                  />
+                  <span className="font-medium text-white/60">{wallet.name}</span>
+                  <span className="ml-auto text-xs text-white/40">Install</span>
+                </a>
+              ))}
+            </div>
+          )}
         </div>
       )}
     </div>

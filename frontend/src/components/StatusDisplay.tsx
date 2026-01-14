@@ -1,25 +1,18 @@
-interface StatusDisplayProps {
-  wsConnected: boolean;
-  wsReconnecting: boolean;
-}
+import { useWallet } from '@aptos-labs/wallet-adapter-react';
 
-export function StatusDisplay({ wsConnected, wsReconnecting }: StatusDisplayProps) {
+export function StatusDisplay() {
+  const { connected, wallet } = useWallet();
+
   return (
-    <div className="flex items-center gap-3">
-      <div className="flex items-center gap-2">
-        <div
-          className={`w-2 h-2 rounded-full ${
-            wsConnected
-              ? 'bg-green-500'
-              : wsReconnecting
-              ? 'bg-yellow-500 animate-pulse'
-              : 'bg-red-500'
-          }`}
-        ></div>
-        <span className="text-sm text-gray-400">
-          {wsConnected ? 'Connected' : wsReconnecting ? 'Reconnecting...' : 'Disconnected'}
-        </span>
-      </div>
+    <div className="flex items-center gap-2 glass-subtle px-3 py-1.5 rounded-full">
+      <div
+        className={`w-2 h-2 rounded-full ${
+          connected ? 'bg-green-500' : 'bg-white/30'
+        }`}
+      ></div>
+      <span className="text-sm text-white/60">
+        {connected ? wallet?.name || 'Connected' : 'Not Connected'}
+      </span>
     </div>
   );
 }
