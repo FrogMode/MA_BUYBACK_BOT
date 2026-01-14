@@ -1,0 +1,145 @@
+import { Router, Request, Response } from 'express';
+import { startTWAP, stopTWAP, getTWAPStatus } from '../services/twap.js';
+import { getSwapQuote, validateSlippage } from '../services/dex.js';
+import { isWalletConfigured } from '../services/wallet.js';
+import { config } from '../config/index.js';
+import type { TWAPConfig } from '../types/index.js';
+
+const router = Router();
+
+router.post('/start', async (req: Request, res: Response) => {
+  try {
+    if (!isWalletConfigured()) {
+      res.status(400).json({
+        success: false,
+        error: 'No wallet configured. Please set up a wallet first.',
+      });
+      return;
+    }
+
+    const {
+      totalAmount,
+      intervalMs = config.defaultIntervalMs,
+      numTrades,
+      slippageBps = config.defaultSlippageBps,
+      tokenIn = config.usdcToken,
+      tokenOut = config.moveToken,
+    } = req.body;
+
+    // Validation
+    if (!totalAmount || totalAmount <= 0) {
+      res.status(400).json({
+        success: false,
+        error: 'Total amount must be greater than 0',
+      });
+      return;
+    }
+
+    if (!numTrades || numTrades <= 0) {
+      res.status(400).json({
+        success: false,
+        error: 'Number of trades must be greater than 0',
+      });
+      return;
+    }
+
+    if (!validateSlippage(slippageBps)) {
+      res.status(400).json({
+        success: false,
+        error: 'Slippage must be between 0.01% (1 bps) and 10% (1000 bps)',
+      });
+      return;
+    }
+
+    const twapConfig: TWAPConfig = {
+      totalAmount,
+      intervalMs,
+      numTrades,
+      slippageBps,
+      tokenIn,
+      tokenOut,
+    };
+
+    const status = startTWAP(twapConfig);
+
+    res.json({
+      success: true,
+      data: status,
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to start TWAP',
+    });
+  }
+});
+
+router.post('/stop', async (_req: Request, res: Response) => {
+  try {
+    const status = stopTWAP();
+
+    res.json({
+      success: true,
+      data: status,
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to stop TWAP',
+    });
+  }
+});
+
+router.get('/status', async (_req: Request, res: Response) => {
+  try {
+    const status = getTWAPStatus();
+
+    res.json({
+      success: true,
+      data: status,
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to get TWAP status',
+    });
+  }
+});
+
+router.post('/quote', async (req: Request, res: Response) => {
+  try {
+    const {
+      amountIn,
+      tokenIn = config.usdcToken,
+      tokenOut = config.moveToken,
+      slippageBps = config.defaultSlippageBps,
+    } = req.body;
+
+    if (!amountIn || amountIn <= 0) {
+      res.status(400).json({
+        success: false,
+        error: 'Amount must be greater than 0',
+      });
+      return;
+    }
+
+    const quote = await getSwapQuote({
+      amountIn,
+      tokenIn,
+      tokenOut,
+      slippageBps,
+    });
+
+    res.json({
+      success: true,
+      data: quote,
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to get quote',
+    });
+  }
+});
+
+export default router;
