@@ -23,7 +23,7 @@ export function BalanceDisplay({ onBalanceUpdate }: BalanceDisplayProps) {
   const { account, connected } = useWallet();
   const { getBalance: getServerBalance, withdrawTokens, getWalletAddress, getUserBalance, scanDeposits } = useApi();
   const [balances, setBalances] = useState<TokenBalances | null>(null);
-  const [serverBalances, setServerBalances] = useState<TokenBalances | null>(null);
+  const [_serverBalances, setServerBalances] = useState<TokenBalances | null>(null);
   const [userBalances, setUserBalances] = useState<{ USDC: UserBalanceSummary; MOVE: UserBalanceSummary } | null>(null);
   const [serverAddress, setServerAddress] = useState<string | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);

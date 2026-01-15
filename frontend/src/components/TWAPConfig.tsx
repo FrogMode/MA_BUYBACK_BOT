@@ -9,7 +9,7 @@ interface TWAPConfigProps {
   initialStatus?: TWAPStatus | null;
 }
 
-export function TWAPConfig({ onStatusChange, onTradeExecuted, initialStatus }: TWAPConfigProps) {
+export function TWAPConfig({ onStatusChange, onTradeExecuted: _onTradeExecuted, initialStatus }: TWAPConfigProps) {
   const { connected, account } = useWallet();
   const { startTWAP: apiStartTWAP, stopTWAP: apiStopTWAP, getTWAPStatus } = useApi();
   const [totalAmount, setTotalAmount] = useState('1000');
