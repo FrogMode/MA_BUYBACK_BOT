@@ -3,9 +3,10 @@ import type { TradeExecution } from '../types';
 interface TradeHistoryProps {
   trades: TradeExecution[];
   onRefresh: (trades: TradeExecution[]) => void;
+  loading?: boolean;
 }
 
-export function TradeHistory({ trades, onRefresh }: TradeHistoryProps) {
+export function TradeHistory({ trades, onRefresh, loading }: TradeHistoryProps) {
   const handleClear = () => {
     onRefresh([]);
   };
@@ -39,7 +40,12 @@ export function TradeHistory({ trades, onRefresh }: TradeHistoryProps) {
         </div>
       </div>
 
-      {trades.length === 0 ? (
+      {loading ? (
+        <div className="text-center py-12 text-white/40">
+          <div className="inline-block w-6 h-6 border-2 border-movement-yellow/30 border-t-movement-yellow rounded-full animate-spin mb-2"></div>
+          <p>Loading trade history...</p>
+        </div>
+      ) : trades.length === 0 ? (
         <div className="text-center py-12 text-white/40">
           <p>No trades executed yet</p>
         </div>

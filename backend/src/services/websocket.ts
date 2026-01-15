@@ -1,5 +1,6 @@
 import { WebSocket, WebSocketServer } from 'ws';
 import type { Server } from 'http';
+import { logger } from '../utils/logger.js';
 import type { TradeExecution, TokenBalances, TWAPStatus, WSMessage } from '../types/index.js';
 
 let wss: WebSocketServer | null = null;
@@ -8,21 +9,25 @@ const clients: Set<WebSocket> = new Set();
 export function initWebSocket(server: Server): WebSocketServer {
   wss = new WebSocketServer({ server });
 
-  wss.on('connection', (ws: WebSocket) => {
-    console.log('WebSocket client connected');
+  wss.on('connection', (ws: WebSocket, req) => {
+    const clientIp = req.socket.remoteAddress;
+    logger.info('WebSocket client connected', { clientIp, totalClients: clients.size + 1 });
     clients.add(ws);
 
     ws.on('close', () => {
-      console.log('WebSocket client disconnected');
+      logger.info('WebSocket client disconnected', { clientIp, totalClients: clients.size - 1 });
       clients.delete(ws);
     });
 
     ws.on('error', (error) => {
-      console.error('WebSocket error:', error);
+      logger.error('WebSocket error', {
+        clientIp,
+        error: error.message,
+      });
       clients.delete(ws);
     });
 
-    // Send a welcome message
+    // Send a welcome message with initial status
     const welcomeMessage: WSMessage = {
       type: 'twap_status',
       data: {
@@ -37,17 +42,25 @@ export function initWebSocket(server: Server): WebSocketServer {
     ws.send(JSON.stringify(welcomeMessage));
   });
 
-  console.log('WebSocket server initialized');
+  logger.info('WebSocket server initialized');
   return wss;
 }
 
 function broadcast(message: WSMessage): void {
   const data = JSON.stringify(message);
+  let sentCount = 0;
 
   clients.forEach((client) => {
     if (client.readyState === WebSocket.OPEN) {
       client.send(data);
+      sentCount++;
     }
+  });
+
+  logger.debug('WebSocket broadcast sent', {
+    type: message.type,
+    sentTo: sentCount,
+    totalClients: clients.size,
   });
 }
 
@@ -76,6 +89,7 @@ export function broadcastTWAPStatus(status: TWAPStatus): void {
 }
 
 export function broadcastError(errorMessage: string): void {
+  logger.warn('Broadcasting error to clients', { error: errorMessage });
   const message: WSMessage = {
     type: 'error',
     data: { message: errorMessage },

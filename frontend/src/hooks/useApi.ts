@@ -3,6 +3,24 @@ import type { ApiResponse, TokenBalances, TWAPStatus, TradeExecution, TWAPConfig
 
 const API_BASE = '/api';
 
+// API key can be set via environment variable or localStorage
+function getApiKey(): string | null {
+  // Check localStorage first (for runtime configuration)
+  const storedKey = localStorage.getItem('twap_api_key');
+  if (storedKey) return storedKey;
+
+  // Fall back to environment variable (set at build time)
+  return import.meta.env.VITE_API_KEY || null;
+}
+
+export function setApiKey(key: string): void {
+  localStorage.setItem('twap_api_key', key);
+}
+
+export function clearApiKey(): void {
+  localStorage.removeItem('twap_api_key');
+}
+
 export function useApi() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -15,10 +33,17 @@ export function useApi() {
     setError(null);
 
     try {
+      const apiKey = getApiKey();
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+      };
+
+      if (apiKey) {
+        headers['X-API-Key'] = apiKey;
+      }
+
       const response = await fetch(`${API_BASE}${endpoint}`, {
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers,
         ...options,
       });
 
@@ -64,8 +89,34 @@ export function useApi() {
     return request<{ configured: boolean; address: string | null }>('/wallet/status');
   }, [request]);
 
+  const withdrawTokens = useCallback((destinationAddress: string, token: 'USDC' | 'MOVE', amount: number) => {
+    return request<{ txHash: string; amount: number; token: string; destinationAddress: string }>('/wallet/withdraw', {
+      method: 'POST',
+      body: JSON.stringify({ destinationAddress, token, amount }),
+    });
+  }, [request]);
+
+  const getUserBalance = useCallback((walletAddress: string) => {
+    return request<{
+      USDC: { deposited: number; withdrawn: number; traded: number; available: number };
+      MOVE: { deposited: number; withdrawn: number; traded: number; available: number };
+    }>(`/wallet/user-balance/${encodeURIComponent(walletAddress)}`);
+  }, [request]);
+
+  const getDeposits = useCallback((walletAddress: string) => {
+    return request<Array<{ txHash: string; token: string; amount: number; timestamp: string }>>(
+      `/wallet/deposits/${encodeURIComponent(walletAddress)}`
+    );
+  }, [request]);
+
+  const scanDeposits = useCallback(() => {
+    return request<{ newDepositsFound: number }>('/wallet/scan-deposits', {
+      method: 'POST',
+    });
+  }, [request]);
+
   // TWAP APIs
-  const startTWAP = useCallback((config: Partial<TWAPConfig>) => {
+  const startTWAP = useCallback((config: Partial<TWAPConfig> & { walletAddress?: string }) => {
     return request<TWAPStatus>('/twap/start', {
       method: 'POST',
       body: JSON.stringify(config),
@@ -78,8 +129,22 @@ export function useApi() {
     });
   }, [request]);
 
-  const getTWAPStatus = useCallback(() => {
-    return request<TWAPStatus>('/twap/status');
+  const getTWAPStatus = useCallback((walletAddress?: string) => {
+    const params = walletAddress ? `?walletAddress=${encodeURIComponent(walletAddress)}` : '';
+    return request<TWAPStatus>(`/twap/status${params}`);
+  }, [request]);
+
+  const getTWAPSessions = useCallback((walletAddress?: string) => {
+    const params = walletAddress ? `?walletAddress=${encodeURIComponent(walletAddress)}` : '';
+    return request<Array<{
+      id: number;
+      config: TWAPConfig;
+      startedAt: number;
+      stoppedAt: number | null;
+      tradesCompleted: number;
+      totalTrades: number;
+      status: 'active' | 'completed' | 'stopped' | 'failed';
+    }>>(`/twap/sessions${params}`);
   }, [request]);
 
   const getQuote = useCallback((amountIn: number) => {
@@ -90,12 +155,14 @@ export function useApi() {
   }, [request]);
 
   // History APIs
-  const getTradeHistory = useCallback(() => {
-    return request<TradeExecution[]>('/history');
+  const getTradeHistory = useCallback((walletAddress?: string) => {
+    const params = walletAddress ? `?walletAddress=${encodeURIComponent(walletAddress)}` : '';
+    return request<TradeExecution[]>(`/history${params}`);
   }, [request]);
 
-  const clearTradeHistory = useCallback(() => {
-    return request<void>('/history', {
+  const clearTradeHistory = useCallback((walletAddress?: string) => {
+    const params = walletAddress ? `?walletAddress=${encodeURIComponent(walletAddress)}` : '';
+    return request<void>(`/history${params}`, {
       method: 'DELETE',
     });
   }, [request]);
@@ -108,9 +175,14 @@ export function useApi() {
     getBalance,
     getWalletAddress,
     getWalletStatus,
+    withdrawTokens,
+    getUserBalance,
+    getDeposits,
+    scanDeposits,
     startTWAP,
     stopTWAP,
     getTWAPStatus,
+    getTWAPSessions,
     getQuote,
     getTradeHistory,
     clearTradeHistory,

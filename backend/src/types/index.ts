@@ -46,4 +46,10 @@ export interface SwapQuote {
   amountOut: number;
   priceImpact: number;
   route: string[];
+  // Internal: Mosaic transaction data (not exposed to clients)
+  _mosaicTx?: {
+    function: string;
+    typeArguments: string[];
+    functionArguments: (string | string[] | boolean | number)[];
+  };
 }

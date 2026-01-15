@@ -1,89 +1,114 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useWallet } from '@aptos-labs/wallet-adapter-react';
+import { useApi } from '../hooks/useApi';
 import type { TWAPStatus, TradeExecution } from '../types';
 
 interface TWAPConfigProps {
   onStatusChange: (status: TWAPStatus) => void;
   onTradeExecuted: (trade: TradeExecution) => void;
+  initialStatus?: TWAPStatus | null;
 }
 
-export function TWAPConfig({ onStatusChange, onTradeExecuted }: TWAPConfigProps) {
+export function TWAPConfig({ onStatusChange, onTradeExecuted, initialStatus }: TWAPConfigProps) {
   const { connected, account } = useWallet();
+  const { startTWAP: apiStartTWAP, stopTWAP: apiStopTWAP, getTWAPStatus } = useApi();
   const [totalAmount, setTotalAmount] = useState('1000');
   const [numTrades, setNumTrades] = useState('10');
   const [intervalHours, setIntervalHours] = useState('1');
   const [slippageBps, setSlippageBps] = useState('50');
   const [isActive, setIsActive] = useState(false);
   const [tradesCompleted, setTradesCompleted] = useState(0);
+  const [totalTradesCount, setTotalTradesCount] = useState(0);
   const [nextTradeAt, setNextTradeAt] = useState<number | null>(null);
+  const [startedAt, setStartedAt] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  const totalTrades = parseInt(numTrades, 10) || 0;
-  const amountPerTrade = parseFloat(totalAmount) / totalTrades || 0;
-  const progress = totalTrades > 0 ? (tradesCompleted / totalTrades) * 100 : 0;
+  const inputTotalTrades = parseInt(numTrades, 10) || 0;
+  const amountPerTrade = parseFloat(totalAmount) / inputTotalTrades || 0;
+  const displayTotalTrades = isActive ? totalTradesCount : inputTotalTrades;
+  const progress = displayTotalTrades > 0 ? (tradesCompleted / displayTotalTrades) * 100 : 0;
 
-  const executeTrade = useCallback(async () => {
-    if (!connected || !account) {
-      setError('Wallet not connected');
-      return;
+  // Restore state from initialStatus when it changes
+  useEffect(() => {
+    if (initialStatus) {
+      setIsActive(initialStatus.isActive);
+      setTradesCompleted(initialStatus.tradesCompleted);
+      setTotalTradesCount(initialStatus.totalTrades);
+      setNextTradeAt(initialStatus.nextTradeAt);
+      setStartedAt(initialStatus.startedAt);
+      
+      if (initialStatus.config) {
+        setTotalAmount(initialStatus.config.totalAmount.toString());
+        setNumTrades(initialStatus.config.numTrades.toString());
+        setIntervalHours((initialStatus.config.intervalMs / (60 * 60 * 1000)).toString());
+        setSlippageBps(initialStatus.config.slippageBps.toString());
+      }
+
+      // Start polling if TWAP is active
+      if (initialStatus.isActive && !pollIntervalRef.current) {
+        startPolling();
+      }
     }
+  }, [initialStatus]);
 
-    const tradeId = `trade-${Date.now()}-${tradesCompleted + 1}`;
-
-    try {
-      // For now, simulate a swap transaction
-      // In production, this would be a real DEX swap call
-      const trade: TradeExecution = {
-        id: tradeId,
-        timestamp: Date.now(),
-        amountIn: amountPerTrade,
-        amountOut: amountPerTrade * 0.5, // Simulated rate
-        txHash: '',
-        status: 'pending',
-      };
-
-      onTradeExecuted({ ...trade, status: 'pending' });
-
-      // Simulated transaction - replace with actual DEX swap
-      // const response = await signAndSubmitTransaction({
-      //   sender: account.address,
-      //   data: {
-      //     function: `${DEX_CONTRACT}::router::swap`,
-      //     functionArguments: [amountPerTrade, minAmountOut],
-      //   },
-      // });
-
-      // For demo, simulate success
-      const simulatedTxHash = `0x${Array.from({ length: 64 }, () =>
-        Math.floor(Math.random() * 16).toString(16)
-      ).join('')}`;
-
-      trade.txHash = simulatedTxHash;
-      trade.status = 'success';
-
-      onTradeExecuted(trade);
-      setTradesCompleted((prev) => prev + 1);
-      setError(null);
-    } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Trade failed';
-      setError(errorMessage);
-
-      onTradeExecuted({
-        id: tradeId,
-        timestamp: Date.now(),
-        amountIn: amountPerTrade,
-        amountOut: 0,
-        txHash: '',
-        status: 'failed',
-        error: errorMessage,
-      });
+  // Reset when wallet disconnects
+  useEffect(() => {
+    if (!connected) {
+      setIsActive(false);
+      setTradesCompleted(0);
+      setTotalTradesCount(0);
+      setNextTradeAt(null);
+      setStartedAt(null);
+      stopPolling();
     }
-  }, [connected, account, amountPerTrade, tradesCompleted, onTradeExecuted]);
+  }, [connected]);
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      stopPolling();
+    };
+  }, []);
+
+  const startPolling = () => {
+    if (pollIntervalRef.current) return;
+    
+    const walletAddress = account?.address?.toString();
+    
+    pollIntervalRef.current = setInterval(async () => {
+      try {
+        const response = await getTWAPStatus(walletAddress);
+        if (response.success && response.data) {
+          const status = response.data;
+          setIsActive(status.isActive);
+          setTradesCompleted(status.tradesCompleted);
+          setTotalTradesCount(status.totalTrades);
+          setNextTradeAt(status.nextTradeAt);
+          setStartedAt(status.startedAt);
+          onStatusChange(status);
+
+          // Stop polling if TWAP is no longer active
+          if (!status.isActive) {
+            stopPolling();
+          }
+        }
+      } catch (err) {
+        console.error('Failed to poll TWAP status:', err);
+      }
+    }, 5000); // Poll every 5 seconds
+  };
+
+  const stopPolling = () => {
+    if (pollIntervalRef.current) {
+      clearInterval(pollIntervalRef.current);
+      pollIntervalRef.current = null;
+    }
+  };
 
   const handleStart = async () => {
-    if (!connected) {
+    if (!connected || !account) {
       setError('Please connect your wallet first');
       return;
     }
@@ -92,38 +117,32 @@ export function TWAPConfig({ onStatusChange, onTradeExecuted }: TWAPConfigProps)
     setError(null);
 
     try {
-      setIsActive(true);
-      setTradesCompleted(0);
-
       const intervalMs = parseFloat(intervalHours) * 60 * 60 * 1000;
+      const walletAddress = account.address.toString();
 
-      // Execute first trade immediately
-      await executeTrade();
+      const response = await apiStartTWAP({
+        totalAmount: parseFloat(totalAmount),
+        intervalMs,
+        numTrades: inputTotalTrades,
+        slippageBps: parseInt(slippageBps, 10),
+        walletAddress,
+      });
 
-      // Set up interval for remaining trades
-      if (totalTrades > 1) {
-        setNextTradeAt(Date.now() + intervalMs);
-        intervalRef.current = setInterval(async () => {
-          await executeTrade();
-          setNextTradeAt(Date.now() + intervalMs);
-        }, intervalMs);
+      if (!response.success) {
+        throw new Error(response.error || 'Failed to start TWAP');
       }
 
-      onStatusChange({
-        isActive: true,
-        config: {
-          totalAmount: parseFloat(totalAmount),
-          intervalMs,
-          numTrades: totalTrades,
-          slippageBps: parseInt(slippageBps, 10),
-          tokenIn: 'USDC',
-          tokenOut: 'MOVE',
-        },
-        tradesCompleted: 0,
-        totalTrades,
-        nextTradeAt: totalTrades > 1 ? Date.now() + intervalMs : null,
-        startedAt: Date.now(),
-      });
+      if (response.data) {
+        setIsActive(true);
+        setTradesCompleted(response.data.tradesCompleted);
+        setTotalTradesCount(response.data.totalTrades);
+        setNextTradeAt(response.data.nextTradeAt);
+        setStartedAt(response.data.startedAt);
+        onStatusChange(response.data);
+        
+        // Start polling for updates
+        startPolling();
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to start TWAP');
       setIsActive(false);
@@ -132,40 +151,30 @@ export function TWAPConfig({ onStatusChange, onTradeExecuted }: TWAPConfigProps)
     }
   };
 
-  const handleStop = () => {
-    if (intervalRef.current) {
-      clearInterval(intervalRef.current);
-      intervalRef.current = null;
-    }
+  const handleStop = async () => {
+    setLoading(true);
+    setError(null);
 
-    setIsActive(false);
-    setNextTradeAt(null);
+    try {
+      const response = await apiStopTWAP();
 
-    onStatusChange({
-      isActive: false,
-      config: null,
-      tradesCompleted,
-      totalTrades: 0,
-      nextTradeAt: null,
-      startedAt: null,
-    });
-  };
-
-  // Check if TWAP is complete
-  useEffect(() => {
-    if (isActive && tradesCompleted >= totalTrades && totalTrades > 0) {
-      handleStop();
-    }
-  }, [tradesCompleted, totalTrades, isActive]);
-
-  // Cleanup on unmount
-  useEffect(() => {
-    return () => {
-      if (intervalRef.current) {
-        clearInterval(intervalRef.current);
+      if (!response.success) {
+        throw new Error(response.error || 'Failed to stop TWAP');
       }
-    };
-  }, []);
+
+      stopPolling();
+      setIsActive(false);
+      setNextTradeAt(null);
+
+      if (response.data) {
+        onStatusChange(response.data);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to stop TWAP');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   return (
     <div className="card">
@@ -182,17 +191,25 @@ export function TWAPConfig({ onStatusChange, onTradeExecuted }: TWAPConfigProps)
               <div>
                 <p className="text-white/50">Progress</p>
                 <p className="font-medium text-white">
-                  {tradesCompleted} / {totalTrades} trades
+                  {tradesCompleted} / {displayTotalTrades} trades
                 </p>
               </div>
               <div>
                 <p className="text-white/50">Amount per Trade</p>
                 <p className="font-medium text-white">
-                  {amountPerTrade.toFixed(2)} USDC
+                  {(parseFloat(totalAmount) / displayTotalTrades).toFixed(2)} USDC
                 </p>
               </div>
+              {startedAt && (
+                <div>
+                  <p className="text-white/50">Started</p>
+                  <p className="font-medium text-white">
+                    {new Date(startedAt).toLocaleTimeString()}
+                  </p>
+                </div>
+              )}
               {nextTradeAt && (
-                <div className="col-span-2">
+                <div>
                   <p className="text-white/50">Next Trade</p>
                   <p className="font-medium text-white">
                     {new Date(nextTradeAt).toLocaleTimeString()}
@@ -214,8 +231,12 @@ export function TWAPConfig({ onStatusChange, onTradeExecuted }: TWAPConfigProps)
             disabled={loading}
             className="btn-danger w-full"
           >
-            Stop TWAP
+            {loading ? 'Stopping...' : 'Stop TWAP'}
           </button>
+          
+          <p className="text-white/40 text-xs text-center">
+            Stopping will cancel remaining trades. Untraded USDC stays in your wallet.
+          </p>
         </div>
       ) : (
         <div className="space-y-4">
